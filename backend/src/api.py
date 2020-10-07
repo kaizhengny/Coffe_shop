@@ -7,16 +7,16 @@ from flask_cors import CORS
 from .database.models import db_drop_and_create_all, setup_db, Drink
 from .auth.auth import AuthError, requires_auth
 
-app = Flask(__name__)
+app=Flask(__name__)
 setup_db(app)
 CORS(app)
 
 '''
-@TODO uncomment the following line to initialize the datbase
+@TODO uncomment the following line to initialize the datbase    
 !! NOTE THIS WILL DROP ALL RECORDS AND START YOUR DB FROM SCRATCH
 !! NOTE THIS MUST BE UNCOMMENTED ON FIRST RUN
 '''
-# db_drop_and_create_all()
+#db_drop_and_create_all()
 
 ## ROUTES
 '''
@@ -29,6 +29,22 @@ CORS(app)
 '''
 
 
+@app.route('/')
+def homepage():
+    return 'Coffee Shop Project!'
+
+
+@app.route('/drinks', methods=['GET'])
+def get_drinks():
+    all_drinks = Drink.query.all()
+    drinks = [Drink.short(drink) for drink in all_drinks]
+    res = jsonify({
+        'success': True,
+        'drinks': drinks
+    })
+    return res
+
+
 '''
 @TODO implement endpoint
     GET /drinks-detail
@@ -37,6 +53,16 @@ CORS(app)
     returns status code 200 and json {"success": True, "drinks": drinks} where drinks is the list of drinks
         or appropriate status code indicating reason for failure
 '''
+@app.route('/drinks-detail')
+@requires_auth('get:drinks-detail')
+def get_drinks_detail(token):
+    all_drinks = Drink.query.all()
+    drinks_detail = [drink.long() for drink in all_drinks]
+    res = jsonify({
+        'success': True,
+        'drinks': drinks_detail
+    })
+    return res
 
 
 '''
@@ -49,6 +75,25 @@ CORS(app)
         or appropriate status code indicating reason for failure
 '''
 
+@app.route('/drinks', methods=['POST'])
+@requires_auth('post:drinks')
+def post_drinks(token):
+    body = request.get_json()  
+
+    new_recipe = body.get('recipe')
+    new_title = body.get('title')
+    try:
+        new_drink = Drink(title=new_title, recipe=json.dumps(new_recipe))
+        new_drink.insert()
+        return jsonify({
+            'success': True,
+            'drinks': Drink.long(new_drink)
+        })
+    except Exception:
+        abort(422)
+
+
+ 
 
 '''
 @TODO implement endpoint
@@ -61,6 +106,22 @@ CORS(app)
     returns status code 200 and json {"success": True, "drinks": drink} where drink an array containing only the updated drink
         or appropriate status code indicating reason for failure
 '''
+@app.route("/drinks/<drink_id>", methods=['PATCH'])
+#@requires_auth("patch:drinks")
+def patch_drinks(token, drink_id):
+    new_drink_info = json.loads(request.data.decode('utf-8'))
+    drink_info = Drink.query.get(drink_id)
+    if 'title' in new_drink_info:
+        setattr(drink_info, 'title', new_drink_info['title'])
+    if 'recipe' in new_drink_info:
+        setattr(drink_info, 'recipe', new_drink_info['recipe'])
+    Drink.update(drink_info)
+    drinks = list(map(Drink.long, Drink.query.all()))
+    res = jsonify({
+        "success": True,
+        "drinks": drinks
+    })
+    return res
 
 
 '''
@@ -73,6 +134,17 @@ CORS(app)
     returns status code 200 and json {"success": True, "delete": id} where id is the id of the deleted record
         or appropriate status code indicating reason for failure
 '''
+@app.route("/drinks/<drink_id>", methods=['DELETE'])
+@requires_auth("delete:drinks")
+def delete_drinks(token, drink_id):
+    drink_info = Drink.query.get(drink_id)
+    Drink.delete(drink_info)
+    drinks = list(map(Drink.long, Drink.query.all()))
+    res = jsonify({
+        "success": True,
+        "drinks": drinks
+    })
+    return res
 
 
 ## Error Handling
@@ -102,9 +174,18 @@ def unprocessable(error):
 @TODO implement error handler for 404
     error handler should conform to general task above 
 '''
-
+@app.errorhandler(404)
+def notfound(error):
+    return jsonify({
+                    "success": False, 
+                    "error": 404,
+                    "message": "resource not found"
+                    }), 404
 
 '''
 @TODO implement error handler for AuthError
     error handler should conform to general task above 
 '''
+@app.errorhandler(AuthError)
+def auth_error(e):
+    return jsonify(e.error), e.status_code
